@@ -119,13 +119,13 @@ function ThemeToggle({ theme, setTheme, t }) {
     <button
       onClick={cycle}
       title={`${label} — click to cycle`}
-      className="flex items-center gap-1.5 px-2.5 py-[5px] rounded-lg
+      className="flex items-center gap-1.5 px-2 sm:px-2.5 py-[5px] rounded-lg shrink-0
         bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700
         text-gray-500 dark:text-gray-400 text-[11.5px] font-medium
         hover:border-blue-500 transition-colors"
     >
       {theme === 'dark' ? <IconMoon/> : theme === 'light' ? <IconSun/> : <IconAuto/>}
-      {label}
+      <span className="hidden sm:inline">{label}</span>
     </button>
   )
 }
@@ -158,7 +158,7 @@ function Card({ children, className = '' }) {
 function CardHeader({ children }) {
   return (
     <div className="px-[18px] py-[13px] border-b border-gray-100 dark:border-gray-800
-      flex items-center justify-between">
+      flex items-center justify-between gap-3">
       {children}
     </div>
   )
@@ -527,30 +527,30 @@ export default function Home() {
         <header className="sticky top-0 z-10 border-b border-gray-200 dark:border-gray-800
           bg-white dark:bg-gray-900"
           style={{ boxShadow: '0 1px 0 var(--tw-shadow-color, rgba(0,0,0,.04))' }}>
-          <div className="max-w-5xl mx-auto px-5 h-14 flex items-center justify-between">
+          <div className="max-w-5xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-2">
 
             {/* Logo + wordmark */}
-            <div className="flex items-center gap-[11px]">
+            <div className="flex items-center gap-[9px] sm:gap-[11px] min-w-0">
               <LogoMark size={30}/>
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-baseline gap-[6px]">
                   <span className="text-[14px] font-semibold text-gray-900 dark:text-white
-                    leading-tight tracking-tight">
+                    leading-tight tracking-tight whitespace-nowrap">
                     {t('header.title')}
                   </span>
-                  <span className="text-[10.5px] font-medium text-gray-300 dark:text-gray-600
+                  <span className="hidden sm:inline text-[10.5px] font-medium text-gray-300 dark:text-gray-600
                     tracking-wide select-none">
                     v{pkg.version}
                   </span>
                 </div>
-                <div className="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 mt-px tracking-wide">
+                <div className="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 mt-px tracking-wide truncate">
                   {t('header.subtitle')}
                 </div>
               </div>
             </div>
 
             {/* Controls */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <ThemeToggle theme={theme} setTheme={setTheme} t={t}/>
 
               {/* Language toggle */}
@@ -558,7 +558,7 @@ export default function Home() {
                 dark:border-gray-700 rounded-lg p-[3px] gap-[3px]">
                 {Object.entries(LOCALES).map(([key, { name }]) => (
                   <button key={key} onClick={() => setLocale(key)}
-                    className={`px-[9px] py-[3px] rounded-md text-[11.5px] font-medium
+                    className={`px-2 sm:px-[9px] py-[3px] rounded-md text-[11.5px] font-medium
                       transition-colors ${
                         locale === key
                           ? 'bg-blue-600 text-white'
@@ -572,7 +572,7 @@ export default function Home() {
               {/* GitHub link */}
               <a href="https://github.com/ififi2017/mihomo-subconverter"
                 target="_blank" rel="noopener noreferrer"
-                className="w-[30px] h-[30px] flex items-center justify-center rounded-lg
+                className="hidden sm:flex w-[30px] h-[30px] items-center justify-center rounded-lg
                   border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800
                   text-gray-500 dark:text-gray-400 hover:border-blue-500 hover:text-gray-700
                   dark:hover:text-white transition-colors">
@@ -625,13 +625,13 @@ export default function Home() {
           {/* ── Step 1: Proxy Links ───────────────────────────── */}
           <Card>
             <CardHeader>
-              <div className="flex items-center gap-[9px]">
+              <div className="flex items-center gap-[9px] shrink-0">
                 <StepBadge n="1"/>
-                <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
+                <span className="text-[13.5px] font-medium text-gray-900 dark:text-white whitespace-nowrap">
                   {t('step1.title')}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-[7px]">
+              <div className="flex flex-wrap items-center justify-end gap-[7px] min-w-0">
                 {extractedFrom && (
                   <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full whitespace-nowrap
                     text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400
@@ -653,12 +653,12 @@ export default function Home() {
                   </span>
                 )}
                 {total > 0 && (
-                  <div className="flex items-center gap-[5px]">
+                  <div className="flex flex-wrap items-center justify-end gap-[5px]">
                     <span className="text-[11.5px] font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
                       {t('step1.nodeCount', { count: total })}
                     </span>
                     <span className="text-gray-300 dark:text-gray-700 text-sm">·</span>
-                    <div className="flex gap-[3px]">
+                    <div className="flex flex-wrap justify-end gap-[3px]">
                       {breakdown.map(([p,c]) => <ProtoBadge key={p} proto={p} count={c}/>)}
                     </div>
                   </div>
