@@ -17,6 +17,7 @@
     "title": "输入节点链接",
     "extractedBadge": "已从订阅链接提取",
     "nodeCount": "{{count}} 条节点",
+    "invalidLines": "{{count}} 行未识别",
     "placeholder": "# 粘贴你的节点链接，每行一个，支持以下格式：\n# hysteria2://password@host:port?peer=sni&insecure=1#节点名称\n# anytls://password@host:port?peer=sni&insecure=1#节点名称\n# vless://uuid@host:port?security=reality&pbk=xxx&sni=xxx&fp=chrome&sid=xxx#节点名称\n# trojan://password@host:port?sni=xxx#节点名称\n# vmess://base64...\n# ss://method:password@host:port#节点名称",
     "supported": "支持协议："
   },
@@ -44,7 +45,7 @@
   "guide": {
     "title": "使用指南",
     "items": [
-      "粘贴节点链接或订阅 URL，节点将自动提取",
+      "粘贴节点链接，或粘贴本工具生成的订阅链接（自动提取其中的节点）",
       "点击生成，即可在你的部署上创建一个实时订阅链接",
       "将订阅链接填入 Clash Verge / Clash Party / Clash Mi 等客户端"
     ],
@@ -70,7 +71,22 @@
       "规则组首次加载时由客户端自动下载"
     ],
     "yamlLines": "{{count}} 行配置",
-    "download": "下载 clash.yaml"
+    "download": "下载 clash.yaml",
+    "urlSecurityNote": "此链接包含节点凭据，请勿分享给他人。",
+    "urlTooLong": "链接较长（{{count}} 字符），部分客户端或 CDN 可能无法处理。",
+    "qr": "二维码",
+    "qrHint": "使用手机客户端扫码导入订阅",
+    "qrTooLong": "链接过长，超出二维码容量，请改用复制粘贴。"
+  },
+  "auth": {
+    "title": "需要访问令牌",
+    "placeholder": "请输入该部署的访问令牌",
+    "confirm": "确认",
+    "hint": "该部署启用了 ACCESS_TOKEN 保护。令牌保存在浏览器本地，并会附加到生成的订阅链接中。"
+  },
+  "update": {
+    "title": "发现新版本",
+    "body": "v{{version}} 已发布，点击查看"
   },
   "footer": "Mihomo Subconverter · 仅供个人使用"
 }

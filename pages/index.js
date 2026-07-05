@@ -1,11 +1,61 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Head from 'next/head'
+import QRCode from 'qrcode'
 import { useI18n, LOCALES } from '../lib/i18n'
 import { useTheme } from '../lib/theme'
 import pkg from '../package.json'
 
 const LS_KEY          = 'mihomo_proxy_links'
 const LS_KEY_TEMPLATE = 'mihomo_template_url'
+const LS_KEY_TOKEN    = 'mihomo_access_token'
+
+// Read the saved access token directly so requests fired before React state
+// hydrates still carry it.
+function getSavedToken() {
+  try { return localStorage.getItem(LS_KEY_TOKEN) || '' } catch { return '' }
+}
+
+/* ── Lightweight YAML syntax highlighting for the preview pane ────── */
+const YAML_SECTIONS = ['proxies', 'proxy-groups', 'rule-providers', 'rules']
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function highlightYamlValue(raw) {
+  const v = raw.trim()
+  if (!v) return escapeHtml(raw)
+  const pad = raw.slice(0, raw.length - raw.trimStart().length)
+  let color = null
+  if (v.startsWith("'") || v.startsWith('"'))            color = '#a5d6ff'  // string
+  else if (/^(true|false)$/.test(v))                     color = '#ff7b72'  // boolean
+  else if (/^-?[\d.]+$/.test(v))                         color = '#ffa657'  // number
+  else if (/^https?:\/\//.test(v))                       color = '#a5d6ff'  // bare URL
+  return color ? `${pad}<span style="color:${color}">${escapeHtml(v)}</span>` : escapeHtml(raw)
+}
+
+function highlightYamlLine(line) {
+  if (/^\s*#/.test(line)) return `<span style="color:#8b949e">${escapeHtml(line)}</span>`
+
+  // Top-level section headers get an anchor for the jump chips
+  const section = line.match(/^([\w-]+):\s*$/)
+  if (section && YAML_SECTIONS.includes(section[1])) {
+    return `<span id="yaml-sec-${section[1]}" style="color:#79c0ff;font-weight:600">${escapeHtml(line)}</span>`
+  }
+
+  // "key: value" (optionally after "- ")
+  const kv = line.match(/^(\s*(?:- )?)([\w-]+)(:)(.*)$/)
+  if (kv) {
+    const [, lead, key, colon, rest] = kv
+    return `${escapeHtml(lead)}<span style="color:#79c0ff">${escapeHtml(key)}</span>${colon}${highlightYamlValue(rest)}`
+  }
+
+  // plain list item: "- value"
+  const li = line.match(/^(\s*- )(.*)$/)
+  if (li) return `${li[1]}${highlightYamlValue(li[2])}`
+
+  return escapeHtml(line)
+}
 
 /* ── Protocol badge colors [bg, text, border] ─────────────────────── */
 const PROTO_COLORS = {
@@ -121,7 +171,7 @@ function ProtoBadge({ proto, count }) {
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 3,
       padding: '1px 7px', borderRadius: 9999,
-      fontSize: 10.5, fontWeight: 500,
+      fontSize: 10.5, fontWeight: 500, whiteSpace: 'nowrap',
       background: bg, color, border: `1px solid ${border}`, letterSpacing: .01,
     }}>
       {PROTO_LABELS[proto] ?? proto}<span style={{ opacity: .55, marginLeft: 1 }}>×{count}</span>
@@ -131,6 +181,7 @@ function ProtoBadge({ proto, count }) {
 
 /* ── Update notification (bottom-right toast) ──────────────────────── */
 function UpdateNotification() {
+  const { t } = useI18n()
   const [info,      setInfo]      = useState(null)  // { latest, url }
   const [dismissed, setDismissed] = useState(false)
 
@@ -166,10 +217,10 @@ function UpdateNotification() {
         style={{ boxShadow: '0 0 0 3px rgba(59,130,246,.2)' }}/>
       <div className="flex-1 min-w-0">
         <p className="text-[12.5px] font-semibold text-gray-900 dark:text-white leading-tight">
-          Update available
+          {t('update.title')}
         </p>
         <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-[2px]">
-          v{info.latest} is out — click to view
+          {t('update.body', { version: info.latest })}
         </p>
       </div>
       <button onClick={dismiss}
@@ -210,6 +261,15 @@ export default function Home() {
   const [copied,         setCopied]         = useState('')
   const [activeTab,      setActiveTab]      = useState('url')
   const [extractedFrom,  setExtractedFrom]  = useState('')
+  const [accessToken,    setAccessToken]    = useState('')
+  const [authRequired,   setAuthRequired]   = useState(false)
+  const [showQr,         setShowQr]         = useState(false)
+  const [qrDataUrl,      setQrDataUrl]      = useState('')
+  const [qrError,        setQrError]        = useState(false)
+  const [isMac,          setIsMac]          = useState(true)
+
+  const resultRef  = useRef(null)
+  const yamlPreRef = useRef(null)
 
   /* ── Restore persisted values ─────────────────────────────────── */
   useEffect(() => {
@@ -219,21 +279,41 @@ export default function Home() {
       if (sl) setProxyLinks(sl)
       if (st) setTemplateUrl(st)
     } catch { }
+    setAccessToken(getSavedToken())
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent))
   }, [])
+
+  /* ── QR code for the subscription URL ─────────────────────────── */
+  useEffect(() => {
+    if (!showQr || !subUrl) return
+    QRCode.toDataURL(subUrl, { width: 220, margin: 1, errorCorrectionLevel: 'L' })
+      .then(d => { setQrDataUrl(d); setQrError(false) })
+      .catch(() => { setQrDataUrl(''); setQrError(true) })
+  }, [showQr, subUrl])
 
   /* ── Fetch rule groups from template (debounced) ──────────────── */
   const debounceRef = useRef(null)
+  const abortRef    = useRef(null)
 
   const fetchGroups = useCallback((url) => {
+    // Cancel any in-flight request so a slow old response can't
+    // overwrite the result of a newer one.
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
     setGroupsLoading(true)
     setGroupsError('')
     const params = new URLSearchParams()
     if (url?.trim()) params.set('url', url.trim())
-    fetch(`/api/preview-template?${params}`)
+    const token = getSavedToken()
+    if (token) params.set('token', token)
+    fetch(`/api/preview-template?${params}`, { signal: controller.signal })
       .then(r => r.json())
-      .then(({ groups, error }) => {
+      .then(({ groups, error, authRequired: needsAuth }) => {
+        setAuthRequired(!!needsAuth)
         if (error && (!groups || groups.length === 0)) {
-          setGroupsError(error)
+          setGroupsError(needsAuth ? '' : error)
           setRuleGroups([])
           setSelectedGroups(new Set())
         } else {
@@ -243,11 +323,14 @@ export default function Home() {
         }
       })
       .catch(e => {
+        if (e.name === 'AbortError') return
         setGroupsError(e.message)
         setRuleGroups([])
         setSelectedGroups(new Set())
       })
-      .finally(() => setGroupsLoading(false))
+      .finally(() => {
+        if (!controller.signal.aborted) setGroupsLoading(false)
+      })
   }, [])
 
   const didInitialLoad = useRef(false)
@@ -297,6 +380,11 @@ export default function Home() {
     try { localStorage.setItem(LS_KEY_TEMPLATE, val) } catch { }
   }, [])
 
+  const handleTokenInput = useCallback((val) => {
+    setAccessToken(val)
+    try { localStorage.setItem(LS_KEY_TOKEN, val) } catch { }
+  }, [])
+
   const toggleGroup = useCallback((name) => {
     setSelectedGroups(prev => {
       const next = new Set(prev)
@@ -312,6 +400,7 @@ export default function Home() {
     if (!links) return null
     const params = new URLSearchParams()
     params.set('config', links)
+    if (accessToken.trim()) params.set('token', accessToken.trim())
     const tpl = templateUrl.trim()
     if (tpl) params.set('template', tpl)
     if (selectedGroups !== null && ruleGroups.length > 0 &&
@@ -321,7 +410,7 @@ export default function Home() {
       .filter(l => l.trim() && !l.trim().startsWith('#'))
     if (customList.length > 0) params.set('customRules', JSON.stringify(customList))
     return `${base}/api/clash?${params.toString()}`
-  }, [proxyLinks, templateUrl, selectedGroups, ruleGroups, customRules])
+  }, [proxyLinks, templateUrl, selectedGroups, ruleGroups, customRules, accessToken])
 
   /* ── Generate ─────────────────────────────────────────────────── */
   const handleGenerate = useCallback(async () => {
@@ -333,11 +422,15 @@ export default function Home() {
     try {
       const url = buildApiUrl(window.location.origin)
       if (!url) { setError(t('generate.errorEmpty')); setLoading(false); return }
-      setSubUrl(url)
       const res = await fetch(url)
       if (!res.ok) throw new Error(await res.text())
       setYamlPreview(await res.text())
+      // Only publish the link once generation succeeded, so a failed
+      // attempt never leaves a broken URL on screen.
+      setSubUrl(url)
       setActiveTab('url')
+      // Bring the (possibly off-screen) result card into view
+      setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
     } catch (e) {
       setError(e.message || t('generate.errorFailed'))
     } finally {
@@ -372,7 +465,7 @@ export default function Home() {
     URL.revokeObjectURL(url)
   }, [yamlPreview])
 
-  /* ── Protocol breakdown ───────────────────────────────────────── */
+  /* ── Protocol breakdown + per-line validity check ─────────────── */
   const analyzeProxies = () => {
     const MAP = {
       'hysteria2://':'hy2','hy2://':'hy2','anytls://':'anytls',
@@ -380,15 +473,33 @@ export default function Home() {
       'ss://':'ss','tuic://':'tuic',
     }
     const counts = {}
+    let invalid = 0
     for (const line of proxyLinks.split('\n')) {
       const l = line.trim()
       if (!l || l.startsWith('#')) continue
-      for (const [pfx, proto] of Object.entries(MAP))
-        if (l.startsWith(pfx)) { counts[proto] = (counts[proto]||0)+1; break }
+      const proto = Object.entries(MAP).find(([pfx]) => l.startsWith(pfx))?.[1]
+      if (proto) counts[proto] = (counts[proto] || 0) + 1
+      else invalid++
     }
-    return { total: Object.values(counts).reduce((a,b)=>a+b,0), breakdown: Object.entries(counts) }
+    return {
+      total: Object.values(counts).reduce((a, b) => a + b, 0),
+      breakdown: Object.entries(counts),
+      invalid,
+    }
   }
-  const { total, breakdown } = analyzeProxies()
+  const { total, breakdown, invalid } = analyzeProxies()
+
+  /* ── Highlighted YAML preview ─────────────────────────────────── */
+  const highlightedYaml = useMemo(
+    () => yamlPreview.split('\n').map(highlightYamlLine).join('\n'),
+    [yamlPreview],
+  )
+
+  const jumpToYamlSection = useCallback((sec) => {
+    const pre = yamlPreRef.current
+    const el  = pre?.querySelector(`#yaml-sec-${sec}`)
+    if (pre && el) pre.scrollTop = Math.max(0, el.offsetTop - 8)
+  }, [])
 
   /* ── textarea / input shared style ───────────────────────────── */
   const inputCls = 'w-full bg-gray-50 dark:bg-gray-950 ' +
@@ -432,7 +543,7 @@ export default function Home() {
                     v{pkg.version}
                   </span>
                 </div>
-                <div className="text-[11px] text-gray-400 dark:text-gray-500 mt-px tracking-wide">
+                <div className="hidden sm:block text-[11px] text-gray-400 dark:text-gray-500 mt-px tracking-wide">
                   {t('header.subtitle')}
                 </div>
               </div>
@@ -475,6 +586,42 @@ export default function Home() {
 
         <main className="max-w-5xl mx-auto px-5 py-7 flex flex-col gap-4">
 
+          {/* ── Access token (only when the deploy sets ACCESS_TOKEN) ── */}
+          {authRequired && (
+            <Card className="animate-in">
+              <div className="p-[18px] flex flex-col gap-2">
+                <span className="text-[13px] font-medium text-gray-900 dark:text-white flex items-center gap-2">
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" className="text-amber-500">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/>
+                  </svg>
+                  {t('auth.title')}
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={accessToken}
+                    onChange={e => handleTokenInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') fetchGroups(templateUrl) }}
+                    placeholder={t('auth.placeholder')}
+                    className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-950
+                      border border-gray-200 dark:border-gray-700 rounded-[9px]
+                      px-[11px] py-[7px] text-[12px] font-mono
+                      text-gray-700 dark:text-gray-200
+                      placeholder-gray-300 dark:placeholder-gray-600
+                      focus:outline-none focus:border-blue-500 transition-colors"
+                    spellCheck={false}
+                  />
+                  <button onClick={() => fetchGroups(templateUrl)} className={secBtnCls}>
+                    {t('auth.confirm')}
+                  </button>
+                </div>
+                <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
+                  {t('auth.hint')}
+                </p>
+              </div>
+            </Card>
+          )}
+
           {/* ── Step 1: Proxy Links ───────────────────────────── */}
           <Card>
             <CardHeader>
@@ -484,9 +631,9 @@ export default function Home() {
                   {t('step1.title')}
                 </span>
               </div>
-              <div className="flex items-center gap-[7px]">
+              <div className="flex flex-wrap items-center justify-end gap-[7px]">
                 {extractedFrom && (
-                  <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full
+                  <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full whitespace-nowrap
                     text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400
                     border border-emerald-500/20">
                     <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
@@ -495,9 +642,19 @@ export default function Home() {
                     {t('step1.extractedBadge')}
                   </span>
                 )}
+                {invalid > 0 && (
+                  <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full whitespace-nowrap
+                    text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400
+                    border border-amber-500/20">
+                    <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+                    </svg>
+                    {t('step1.invalidLines', { count: invalid })}
+                  </span>
+                )}
                 {total > 0 && (
                   <div className="flex items-center gap-[5px]">
-                    <span className="text-[11.5px] font-medium text-gray-400 dark:text-gray-500">
+                    <span className="text-[11.5px] font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
                       {t('step1.nodeCount', { count: total })}
                     </span>
                     <span className="text-gray-300 dark:text-gray-700 text-sm">·</span>
@@ -769,7 +926,7 @@ export default function Home() {
                     <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 001.414 1.414L9 9.414V13a1 1 0 102 0V9.414l1.293 1.293a1 1 0 001.414-1.414z" clipRule="evenodd"/>
                   </svg>
                   {t('generate.button')}
-                  <kbd className="text-[10px] opacity-50 font-mono border border-current rounded px-1 ml-1">⌘↵</kbd>
+                  <kbd className="text-[10px] opacity-50 font-mono border border-current rounded px-1 ml-1">{isMac ? '⌘↵' : 'Ctrl↵'}</kbd>
                 </>
               )}
             </button>
@@ -789,6 +946,7 @@ export default function Home() {
 
           {/* ── Result ────────────────────────────────────────── */}
           {(subUrl || yamlPreview) && (
+            <div ref={resultRef} style={{ scrollMarginTop: 64 }}>
             <Card className="animate-in">
               <CardHeader>
                 <div className="flex items-center gap-2">
@@ -821,38 +979,90 @@ export default function Home() {
                     <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
                       {t('result.urlDescription')}
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <div className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-950
                         border border-gray-200 dark:border-gray-700 rounded-[9px] px-3 py-2 overflow-hidden">
                         <div className="text-[12px] font-mono text-gray-600 dark:text-gray-300
-                          whitespace-nowrap overflow-hidden text-ellipsis">
+                          break-all max-h-[76px] overflow-y-auto
+                          sm:break-normal sm:max-h-none sm:overflow-hidden sm:whitespace-nowrap sm:text-ellipsis">
                           {subUrl}
                         </div>
                       </div>
-                      <button
-                        onClick={() => copyToClipboard(subUrl, 'url')}
-                        className={`${secBtnCls} whitespace-nowrap ${
-                          copied === 'url'
-                            ? '!bg-emerald-500/10 !text-emerald-600 dark:!text-emerald-400 !border-emerald-500/30'
-                            : ''
-                        }`}>
-                        {copied === 'url' ? (
-                          <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>{t('result.copied')}</>
-                        ) : (
-                          <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"/><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"/></svg>{t('result.copy')}</>
-                        )}
-                      </button>
+                      <div className="flex gap-2 shrink-0">
+                        <button
+                          onClick={() => copyToClipboard(subUrl, 'url')}
+                          className={`${secBtnCls} whitespace-nowrap ${
+                            copied === 'url'
+                              ? '!bg-emerald-500/10 !text-emerald-600 dark:!text-emerald-400 !border-emerald-500/30'
+                              : ''
+                          }`}>
+                          {copied === 'url' ? (
+                            <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>{t('result.copied')}</>
+                          ) : (
+                            <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"/><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"/></svg>{t('result.copy')}</>
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setShowQr(v => !v)}
+                          className={`${secBtnCls} whitespace-nowrap ${
+                            showQr ? '!border-blue-500 !text-blue-600 dark:!text-blue-400' : ''
+                          }`}>
+                          <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M3 3h5v5H3V3zm2 2v1h1V5H5zM3 12h5v5H3v-5zm2 2v1h1v-1H5zM12 3h5v5h-5V3zm2 2v1h1V5h-1zM12 12h2v2h-2v-2zM15 12h2v2h-2v-2zM12 15h2v2h-2v-2zM15 15h2v2h-2v-2z"/>
+                          </svg>
+                          {t('result.qr')}
+                        </button>
+                      </div>
                     </div>
+                    {showQr && (
+                      qrError ? (
+                        <p className="mt-3 text-[11.5px] text-amber-600/90 dark:text-amber-500/90">
+                          {t('result.qrTooLong')}
+                        </p>
+                      ) : qrDataUrl && (
+                        <div className="mt-3 flex flex-col items-center gap-2 animate-in">
+                          <img src={qrDataUrl} alt="Subscription QR code" width={220} height={220}
+                            className="rounded-[10px] border border-gray-200 dark:border-gray-700 bg-white p-2"/>
+                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
+                            {t('result.qrHint')}
+                          </p>
+                        </div>
+                      )
+                    )}
+                    <p className="mt-2 text-[11px] text-amber-600/90 dark:text-amber-500/90 flex items-center gap-1.5">
+                      <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor" className="shrink-0">
+                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+                      </svg>
+                      {t('result.urlSecurityNote')}
+                    </p>
+                    {subUrl.length > 8000 && (
+                      <p className="mt-1 text-[11px] text-amber-600/90 dark:text-amber-500/90">
+                        {t('result.urlTooLong', { count: subUrl.length })}
+                      </p>
+                    )}
                   </div>
                 </div>
               )}
 
               {activeTab === 'yaml' && yamlPreview && (
                 <div className="p-[18px]">
-                  <div className="flex justify-between items-center mb-[10px]">
-                    <span className="text-xs text-gray-400 dark:text-gray-500">
-                      {t('result.yamlLines', { count: yamlPreview.split('\n').length })}
-                    </span>
+                  <div className="flex flex-wrap justify-between items-center gap-2 mb-[10px]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-gray-400 dark:text-gray-500">
+                        {t('result.yamlLines', { count: yamlPreview.split('\n').length })}
+                      </span>
+                      <span className="text-gray-200 dark:text-gray-700">·</span>
+                      {YAML_SECTIONS.map(sec => (
+                        <button key={sec} onClick={() => jumpToYamlSection(sec)}
+                          className="px-2 py-[2px] rounded-md text-[10.5px] font-mono
+                            bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700
+                            text-gray-500 dark:text-gray-400
+                            hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400
+                            transition-colors">
+                          {sec}
+                        </button>
+                      ))}
+                    </div>
                     <div className="flex gap-[6px]">
                       <button onClick={() => copyToClipboard(yamlPreview, 'yaml')}
                         className={secBtnCls}>
@@ -872,18 +1082,21 @@ export default function Home() {
                       </button>
                     </div>
                   </div>
-                  <pre className="rounded-[10px] p-[14px] text-[12px] font-mono
+                  <pre ref={yamlPreRef}
+                    className="rounded-[10px] p-[14px] text-[12px] font-mono
                     overflow-auto max-h-[300px] leading-[1.7]"
                     style={{
                       background: '#0d1117',
                       border: '1px solid rgba(255,255,255,.06)',
                       color: '#8fbcbb',
-                    }}>
-                    {yamlPreview}
-                  </pre>
+                      position: 'relative',
+                    }}
+                    dangerouslySetInnerHTML={{ __html: highlightedYaml }}
+                  />
                 </div>
               )}
             </Card>
+            </div>
           )}
 
         </main>

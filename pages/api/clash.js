@@ -1,6 +1,8 @@
 import { parseProxyLinks } from '../../lib/parser'
 import { generateClashConfigFromIni } from '../../lib/generator'
 import { parseIni } from '../../lib/iniParser'
+import { validateTemplateUrl, fetchTextCapped } from '../../lib/safeFetch'
+import { checkAccessToken } from '../../lib/auth'
 
 // Default template — MetaCubeX Full (hosted in the project's own rules repo).
 // Users can override this via the `template` query parameter.
@@ -8,6 +10,17 @@ const DEFAULT_TEMPLATE_URL =
   'https://raw.githubusercontent.com/ififi2017/clash_rules/master/config/MetaCubeX_Full.ini'
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET')
+    return res.status(405).send('Method Not Allowed')
+  }
+
+  if (!checkAccessToken(req)) {
+    return res.status(401).send('Unauthorized: missing or invalid `token` parameter')
+  }
+
+  // Note: req.query values are already URL-decoded by Next.js.
+  // Decoding again would corrupt values containing literal '%' characters.
   const { config, template, customRules, groups } = req.query
 
   if (!config) {
@@ -16,8 +29,7 @@ export default async function handler(req, res) {
 
   try {
     // ── Parse proxy links ────────────────────────────────────────────────
-    const decodedConfig = decodeURIComponent(config)
-    const proxies = parseProxyLinks(decodedConfig)
+    const proxies = parseProxyLinks(config)
 
     if (proxies.length === 0) {
       return res
@@ -25,25 +37,23 @@ export default async function handler(req, res) {
         .send('No valid proxy links found. Supported: hysteria2://, anytls://, vless://, trojan://, vmess://, ss://, tuic://')
     }
 
-    // ── Fetch INI template ───────────────────────────────────────────────
+    // ── Resolve INI template URL ─────────────────────────────────────────
     let templateUrl = DEFAULT_TEMPLATE_URL
     if (template) {
-      const decoded = decodeURIComponent(template).trim()
-      // Only allow http / https URLs
-      if (/^https?:\/\//i.test(decoded)) {
-        templateUrl = decoded
+      const validated = validateTemplateUrl(template)
+      if (!validated) {
+        return res
+          .status(400)
+          .send('Invalid template URL: only public http(s) URLs are allowed' +
+                (process.env.TEMPLATE_ALLOWED_HOSTS ? ' (host not in allowlist)' : ''))
       }
+      templateUrl = validated
     }
 
+    // ── Fetch INI template ───────────────────────────────────────────────
     let iniText
     try {
-      const iniRes = await fetch(templateUrl, {
-        headers: { 'User-Agent': 'mihomo-subconverter/1.0' },
-        // 10-second timeout (Node 18+ fetch supports signal)
-        signal: AbortSignal.timeout(10_000),
-      })
-      if (!iniRes.ok) throw new Error(`HTTP ${iniRes.status}`)
-      iniText = await iniRes.text()
+      iniText = await fetchTextCapped(templateUrl)
     } catch (e) {
       return res
         .status(502)
@@ -65,22 +75,20 @@ export default async function handler(req, res) {
     // ── Parse custom rules ────────────────────────────────────────────────
     let customRulesList = []
     if (customRules) {
-      try {
-        customRulesList = JSON.parse(decodeURIComponent(customRules))
-      } catch {
-        customRulesList = decodeURIComponent(customRules)
-          .split('\n')
-          .map(s => s.trim())
-          .filter(Boolean)
-      }
+      let parsed = null
+      try { parsed = JSON.parse(customRules) } catch { }
+      const arr = Array.isArray(parsed) ? parsed : String(customRules).split('\n')
+      customRulesList = arr
+        .map(r => String(r).replace(/[\r\n]+/g, ' ').trim())
+        .filter(Boolean)
     }
 
     // ── Parse selected groups ─────────────────────────────────────────────
     let selectedGroups = null   // null = include all
     if (groups) {
       try {
-        const parsed = JSON.parse(decodeURIComponent(groups))
-        if (Array.isArray(parsed)) selectedGroups = new Set(parsed)
+        const parsed = JSON.parse(groups)
+        if (Array.isArray(parsed)) selectedGroups = new Set(parsed.map(String))
       } catch {
         // malformed → include all
       }

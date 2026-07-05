@@ -7,26 +7,36 @@
  * Response: { groups: string[] }
  */
 import { parseIni } from '../../lib/iniParser'
+import { validateTemplateUrl, fetchTextCapped } from '../../lib/safeFetch'
+import { checkAccessToken } from '../../lib/auth'
 
 const DEFAULT_TEMPLATE_URL =
   'https://raw.githubusercontent.com/ififi2017/clash_rules/master/config/MetaCubeX_Full.ini'
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET')
+    return res.status(405).json({ error: 'Method Not Allowed', groups: [] })
+  }
+
+  if (!checkAccessToken(req)) {
+    return res.status(401).json({ error: 'Unauthorized', authRequired: true, groups: [] })
+  }
+
+  // req.query is already URL-decoded by Next.js — do not decode again.
   const { url } = req.query
 
   let templateUrl = DEFAULT_TEMPLATE_URL
   if (url) {
-    const decoded = decodeURIComponent(url).trim()
-    if (/^https?:\/\//i.test(decoded)) templateUrl = decoded
+    const validated = validateTemplateUrl(url)
+    if (!validated) {
+      return res.status(400).json({ error: 'Invalid template URL', groups: [] })
+    }
+    templateUrl = validated
   }
 
   try {
-    const iniRes = await fetch(templateUrl, {
-      headers: { 'User-Agent': 'mihomo-subconverter/1.0' },
-      signal: AbortSignal.timeout(10_000),
-    })
-    if (!iniRes.ok) throw new Error(`HTTP ${iniRes.status}`)
-    const iniText = await iniRes.text()
+    const iniText = await fetchTextCapped(templateUrl)
     const { rulesets } = parseIni(iniText)
 
     // Collect unique group names that have URL-based rulesets (toggleable services).

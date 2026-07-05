@@ -28,6 +28,11 @@ function isNewer(a, b) {
 }
 
 export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET')
+    return res.status(405).json({ error: 'Method Not Allowed' })
+  }
+
   // Serve from cache if still fresh
   if (_cache && Date.now() < _cache.expiresAt) {
     res.setHeader('Cache-Control', 'public, max-age=3600')
