@@ -87,4 +87,13 @@ describe('generateClashConfigFromIni', () => {
       expect(out).toContain(`- name: '${name}'`)
     }
   })
+
+  it('does not emit alterId for VMess proxies', () => {
+    const vmessProxy = [{
+      name: 'VM-01', type: 'vmess', server: 'v.example.com', port: 443,
+      uuid: 'uu-id-here', alterId: 0, cipher: 'auto', udp: true,
+    }]
+    const yaml = generateClashConfigFromIni(vmessProxy, INI, [], '')
+    expect(yaml).not.toContain('alterId')
+  })
 })

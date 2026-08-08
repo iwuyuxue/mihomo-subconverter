@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { validateTemplateUrl } from '../lib/safeFetch'
+import { validateTemplateUrl, fetchTextCapped } from '../lib/safeFetch'
 
 afterEach(() => { delete process.env.TEMPLATE_ALLOWED_HOSTS })
 
@@ -43,5 +43,80 @@ describe('validateTemplateUrl', () => {
     expect(validateTemplateUrl('https://evil.com/a.ini')).toBeNull()
     // must be a dot-boundary suffix, not a substring
     expect(validateTemplateUrl('https://notexample.org/a.ini')).toBeNull()
+  })
+})
+
+describe('fetchTextCapped', () => {
+  it('throws on responses exceeding maxBytes via Content-Length', async () => {
+    const originalFetch = global.fetch
+    global.fetch = async () => ({
+      ok: true,
+      headers: { get: () => '500' },
+      body: {
+        getReader: () => {
+          let returned = false
+          return {
+            read: async () => {
+              if (returned) return { done: true, value: undefined }
+              returned = true
+              return { done: false, value: Buffer.from('x'.repeat(500)) }
+            },
+            cancel: async () => {},
+          }
+        },
+      },
+    })
+    await expect(
+      fetchTextCapped('http://example.com/big', { maxBytes: 100, timeoutMs: 5000 })
+    ).rejects.toThrow(/too large/i)
+    global.fetch = originalFetch
+  })
+
+  it('throws on responses exceeding maxBytes via streaming', async () => {
+    const originalFetch = global.fetch
+    let readCount = 0
+    global.fetch = async () => ({
+      ok: true,
+      headers: { get: () => null },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (readCount >= 3) return { done: true, value: undefined }
+            readCount++
+            return { done: false, value: Buffer.from('x'.repeat(60)) }
+          },
+          cancel: async () => {},
+        }),
+      },
+    })
+    await expect(
+      fetchTextCapped('http://example.com/streaming', { maxBytes: 100, timeoutMs: 5000 })
+    ).rejects.toThrow(/too large/i)
+    global.fetch = originalFetch
+  })
+
+  it('resolves successfully for small responses', async () => {
+    const originalFetch = global.fetch
+    global.fetch = async () => ({
+      ok: true,
+      headers: { get: () => '50' },
+      body: {
+        getReader: () => {
+          let returned = false
+          return {
+            read: async () => {
+              if (returned) return { done: true, value: undefined }
+              returned = true
+              return { done: false, value: Buffer.from('hello world') }
+            },
+            cancel: async () => {},
+          }
+        },
+      },
+    })
+    const body = await fetchTextCapped('http://example.com/small', { maxBytes: 200, timeoutMs: 5000 })
+    expect(body.length).toBeGreaterThan(0)
+    expect(body).toBe('hello world')
+    global.fetch = originalFetch
   })
 })

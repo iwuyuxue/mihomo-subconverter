@@ -8,6 +8,21 @@ function one(link) {
 }
 
 describe('parseProxyLinks — general behavior', () => {
+  it('returns empty array for empty input', () => {
+    expect(parseProxyLinks('')).toHaveLength(0)
+    expect(parseProxyLinks('\n\n')).toHaveLength(0)
+  })
+
+  it('returns empty array when all lines are invalid', () => {
+    const input = [
+      '# a comment',
+      'http://not-a-proxy.example.com',
+      'ftp://bad-protocol.com',
+      '',
+    ].join('\n')
+    expect(parseProxyLinks(input)).toHaveLength(0)
+  })
+
   it('skips comments, blank lines and unknown schemes', () => {
     const input = [
       '# a comment',
@@ -149,14 +164,33 @@ describe('Shadowsocks', () => {
     expect(p['plugin-opts']).toEqual({ mode: 'http', host: 'example.com' })
   })
 
-  it('parses IPv6 hosts', () => {
+  it('parses IPv6 hosts via splitHostPort bracket notation', () => {
     const p = one('ss://YWVzLTEyOC1nY206cHc=@[2001:db8::1]:8388#v6')
     expect(p.server).toBe('2001:db8::1')
     expect(p.port).toBe(8388)
   })
 
-  it('skips links with a missing port', () => {
+  it('handles IPv6 percent-encoded scope IDs', () => {
+    const p = one('ss://YWVzLTEyOC1nY206cHc=@[fe80::1%25eth0]:8388#v6-scope')
+    // The URL parser keeps the percent-encoding, which Clash/Mihomo understands
+    expect(p.server).toBe('fe80::1%25eth0')
+    expect(p.port).toBe(8388)
+  })
+
+  it('rejects links with a missing port', () => {
     expect(parseProxyLinks('ss://YWVzLTEyOC1nY206cHc=@no-port-here')).toHaveLength(0)
+  })
+
+  it('rejects links with malformed IPv6 (missing closing bracket)', () => {
+    expect(parseProxyLinks('ss://YWVzLTEyOC1nY206cHc=@[::1:8388')).toHaveLength(0)
+  })
+
+  it('rejects links with empty host in host:port', () => {
+    expect(parseProxyLinks('ss://YWVzLTEyOC1nY206cHc=@:8388')).toHaveLength(0)
+  })
+
+  it('rejects links with port that is not a finite number', () => {
+    expect(parseProxyLinks('ss://YWVzLTEyOC1nY206cHc=@host.example.com:notaport')).toHaveLength(0)
   })
 })
 

@@ -1,92 +1,26 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import Head from 'next/head'
 import QRCode from 'qrcode'
 import { useI18n, LOCALES } from '../lib/i18n'
 import { useTheme } from '../lib/theme'
+import {
+  LS_KEY_PROXY_LINKS, LS_KEY_TEMPLATE_URL, LS_KEY_ACCESS_TOKEN,
+  PROXY_PREFIXES,
+} from '../lib/constants'
 import pkg from '../package.json'
+import ThemeToggle from '../components/ThemeToggle'
+import ProxyInput from '../components/ProxyInput'
+import RuleGroups from '../components/RuleGroups'
+import CustomRules, { GuidePanel } from '../components/CustomRules'
+import ResultPanel from '../components/ResultPanel'
+import { Card, secBtnCls } from '../components/UI'
 
-const LS_KEY          = 'mihomo_proxy_links'
-const LS_KEY_TEMPLATE = 'mihomo_template_url'
-const LS_KEY_TOKEN    = 'mihomo_access_token'
+const LS_KEY          = LS_KEY_PROXY_LINKS
+const LS_KEY_TEMPLATE = LS_KEY_TEMPLATE_URL
+const LS_KEY_TOKEN    = LS_KEY_ACCESS_TOKEN
 
-// Read the saved access token directly so requests fired before React state
-// hydrates still carry it.
 function getSavedToken() {
   try { return localStorage.getItem(LS_KEY_TOKEN) || '' } catch { return '' }
-}
-
-/* ── Lightweight YAML syntax highlighting for the preview pane ────── */
-const YAML_SECTIONS = ['proxies', 'proxy-groups', 'rule-providers', 'rules']
-
-function escapeHtml(s) {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-
-function highlightYamlValue(raw) {
-  const v = raw.trim()
-  if (!v) return escapeHtml(raw)
-  const pad = raw.slice(0, raw.length - raw.trimStart().length)
-  let color = null
-  if (v.startsWith("'") || v.startsWith('"'))            color = '#a5d6ff'  // string
-  else if (/^(true|false)$/.test(v))                     color = '#ff7b72'  // boolean
-  else if (/^-?[\d.]+$/.test(v))                         color = '#ffa657'  // number
-  else if (/^https?:\/\//.test(v))                       color = '#a5d6ff'  // bare URL
-  return color ? `${pad}<span style="color:${color}">${escapeHtml(v)}</span>` : escapeHtml(raw)
-}
-
-function highlightYamlLine(line) {
-  if (/^\s*#/.test(line)) return `<span style="color:#8b949e">${escapeHtml(line)}</span>`
-
-  // Top-level section headers get an anchor for the jump chips
-  const section = line.match(/^([\w-]+):\s*$/)
-  if (section && YAML_SECTIONS.includes(section[1])) {
-    return `<span id="yaml-sec-${section[1]}" style="color:#79c0ff;font-weight:600">${escapeHtml(line)}</span>`
-  }
-
-  // "key: value" (optionally after "- ")
-  const kv = line.match(/^(\s*(?:- )?)([\w-]+)(:)(.*)$/)
-  if (kv) {
-    const [, lead, key, colon, rest] = kv
-    return `${escapeHtml(lead)}<span style="color:#79c0ff">${escapeHtml(key)}</span>${colon}${highlightYamlValue(rest)}`
-  }
-
-  // plain list item: "- value"
-  const li = line.match(/^(\s*- )(.*)$/)
-  if (li) return `${li[1]}${highlightYamlValue(li[2])}`
-
-  return escapeHtml(line)
-}
-
-/* ── Protocol badge colors [bg, text, border] ─────────────────────── */
-const PROTO_COLORS = {
-  hy2:    ['rgba(139,92,246,.12)',  '#7c3aed', 'rgba(139,92,246,.25)'],
-  anytls: ['rgba(6,182,212,.12)',   '#0e7490', 'rgba(6,182,212,.25)'],
-  vless:  ['rgba(37,99,235,.12)',   '#1d4ed8', 'rgba(37,99,235,.25)'],
-  trojan: ['rgba(244,63,94,.12)',   '#be123c', 'rgba(244,63,94,.25)'],
-  vmess:  ['rgba(245,158,11,.12)',  '#b45309', 'rgba(245,158,11,.25)'],
-  ss:     ['rgba(16,185,129,.12)',  '#047857', 'rgba(16,185,129,.25)'],
-  tuic:   ['rgba(236,72,153,.12)',  '#9d174d', 'rgba(236,72,153,.25)'],
-}
-const PROTO_LABELS = {
-  hy2: 'Hysteria2', anytls: 'AnyTLS', vless: 'VLESS',
-  trojan: 'Trojan', vmess: 'VMess', ss: 'Shadowsocks', tuic: 'TUIC',
-}
-
-/* ── Icons ────────────────────────────────────────────────────────── */
-function IconSun()  {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 2.25a.75.75 0 01.75.75v2.25a.75.75 0 01-1.5 0V3a.75.75 0 01.75-.75zM7.5 12a4.5 4.5 0 119 0 4.5 4.5 0 01-9 0zM18.894 6.166a.75.75 0 00-1.06-1.06l-1.591 1.59a.75.75 0 101.06 1.061l1.591-1.59zM21.75 12a.75.75 0 01-.75.75h-2.25a.75.75 0 010-1.5H21a.75.75 0 01.75.75zM17.834 18.894a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 10-1.061 1.06l1.59 1.591zM12 18a.75.75 0 01.75.75V21a.75.75 0 01-1.5 0v-2.25A.75.75 0 0112 18zM7.758 17.303a.75.75 0 00-1.061-1.06l-1.591 1.59a.75.75 0 001.06 1.061l1.591-1.59zM6 12a.75.75 0 01-.75.75H3a.75.75 0 010-1.5h2.25A.75.75 0 016 12zM6.697 7.757a.75.75 0 001.06-1.06l-1.59-1.591a.75.75 0 00-1.061 1.06l1.59 1.591z"/>
-  </svg>
-}
-function IconMoon() {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-    <path fillRule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z" clipRule="evenodd"/>
-  </svg>
-}
-function IconAuto() {
-  return <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-  </svg>
 }
 
 /* ── Logo ─────────────────────────────────────────────────────────── */
@@ -108,85 +42,13 @@ function LogoMark({ size = 30 }) {
   )
 }
 
-/* ── Single-button theme toggle ────────────────────────────────────── */
-function ThemeToggle({ theme, setTheme, t }) {
-  const cycle = () => {
-    const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'auto' : 'light'
-    setTheme(next)
-  }
-  const label = t(`theme.${theme}`)
-  return (
-    <button
-      onClick={cycle}
-      title={`${label} — click to cycle`}
-      className="flex items-center gap-1.5 px-2 sm:px-2.5 py-[5px] rounded-lg shrink-0
-        bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700
-        text-gray-500 dark:text-gray-400 text-[11.5px] font-medium
-        hover:border-blue-500 transition-colors"
-    >
-      {theme === 'dark' ? <IconMoon/> : theme === 'light' ? <IconSun/> : <IconAuto/>}
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  )
-}
-
-/* ── Step badge ────────────────────────────────────────────────────── */
-function StepBadge({ n }) {
-  return (
-    <span className="w-[22px] h-[22px] rounded-full bg-blue-600 text-white
-      flex items-center justify-center text-[11px] font-bold shrink-0"
-      style={{ boxShadow: 'var(--shadow-badge)' }}>
-      {n}
-    </span>
-  )
-}
-
-/* ── Card wrapper ──────────────────────────────────────────────────── */
-function Card({ children, className = '' }) {
-  return (
-    <section
-      className={`bg-white dark:bg-gray-900 rounded-[14px]
-        border border-gray-200 dark:border-gray-800 overflow-hidden ${className}`}
-      style={{ boxShadow: 'var(--shadow-card)' }}
-    >
-      {children}
-    </section>
-  )
-}
-
-/* ── Card header ───────────────────────────────────────────────────── */
-function CardHeader({ children }) {
-  return (
-    <div className="px-[18px] py-[13px] border-b border-gray-100 dark:border-gray-800
-      flex items-center justify-between gap-3">
-      {children}
-    </div>
-  )
-}
-
-/* ── Protocol badge ────────────────────────────────────────────────── */
-function ProtoBadge({ proto, count }) {
-  const [bg, color, border] = PROTO_COLORS[proto] || ['rgba(100,100,100,.1)', '#6b7280', 'rgba(100,100,100,.2)']
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 3,
-      padding: '1px 7px', borderRadius: 9999,
-      fontSize: 10.5, fontWeight: 500, whiteSpace: 'nowrap',
-      background: bg, color, border: `1px solid ${border}`, letterSpacing: .01,
-    }}>
-      {PROTO_LABELS[proto] ?? proto}<span style={{ opacity: .55, marginLeft: 1 }}>×{count}</span>
-    </span>
-  )
-}
-
 /* ── Update notification (bottom-right toast) ──────────────────────── */
 function UpdateNotification() {
   const { t } = useI18n()
-  const [info,      setInfo]      = useState(null)  // { latest, url }
+  const [info,      setInfo]      = useState(null)
   const [dismissed, setDismissed] = useState(false)
 
   useEffect(() => {
-    // One-per-session dismissal
     if (sessionStorage.getItem('update_dismissed')) { setDismissed(true); return }
     fetch('/api/check-update')
       .then(r => r.ok ? r.json() : null)
@@ -212,7 +74,6 @@ function UpdateNotification() {
         hover:border-blue-400 dark:hover:border-blue-500
         transition-all cursor-pointer"
       style={{ boxShadow: '0 4px 20px rgba(37,99,235,.15), 0 1px 4px rgba(0,0,0,.08)', animation: 'fadeIn .3s ease both' }}>
-      {/* Blue dot */}
       <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 mt-[3px]"
         style={{ boxShadow: '0 0 0 3px rgba(59,130,246,.2)' }}/>
       <div className="flex-1 min-w-0">
@@ -235,12 +96,6 @@ function UpdateNotification() {
     </a>
   )
 }
-
-/* ── Shared button style ───────────────────────────────────────────── */
-const secBtnCls = 'flex items-center gap-1.5 px-3 py-[6px] rounded-lg text-xs font-medium ' +
-  'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 ' +
-  'border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 ' +
-  'transition-colors cursor-pointer'
 
 /* ── Main page ─────────────────────────────────────────────────────── */
 export default function Home() {
@@ -271,6 +126,18 @@ export default function Home() {
   const resultRef  = useRef(null)
   const yamlPreRef = useRef(null)
 
+  /* ── Warn before leaving if proxy links are entered but not yet generated ── */
+  useEffect(() => {
+    const onBeforeUnload = (e) => {
+      if (proxyLinks.trim() && !yamlPreview) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [proxyLinks, yamlPreview])
+
   /* ── Restore persisted values ─────────────────────────────────── */
   useEffect(() => {
     try {
@@ -296,8 +163,6 @@ export default function Home() {
   const abortRef    = useRef(null)
 
   const fetchGroups = useCallback((url) => {
-    // Cancel any in-flight request so a slow old response can't
-    // overwrite the result of a newer one.
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -349,7 +214,6 @@ export default function Home() {
   }, [templateUrl, fetchGroups])
 
   /* ── Input handlers ───────────────────────────────────────────── */
-  const PROXY_PREFIXES = ['hysteria2://', 'hy2://', 'anytls://', 'vless://', 'trojan://', 'vmess://', 'ss://', 'tuic://']
 
   const handleProxyInput = useCallback((raw) => {
     const trimmed = raw.trim()
@@ -425,11 +289,8 @@ export default function Home() {
       const res = await fetch(url)
       if (!res.ok) throw new Error(await res.text())
       setYamlPreview(await res.text())
-      // Only publish the link once generation succeeded, so a failed
-      // attempt never leaves a broken URL on screen.
       setSubUrl(url)
       setActiveTab('url')
-      // Bring the (possibly off-screen) result card into view
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60)
     } catch (e) {
       setError(e.message || t('generate.errorFailed'))
@@ -465,51 +326,6 @@ export default function Home() {
     URL.revokeObjectURL(url)
   }, [yamlPreview])
 
-  /* ── Protocol breakdown + per-line validity check ─────────────── */
-  const analyzeProxies = () => {
-    const MAP = {
-      'hysteria2://':'hy2','hy2://':'hy2','anytls://':'anytls',
-      'vless://':'vless','trojan://':'trojan','vmess://':'vmess',
-      'ss://':'ss','tuic://':'tuic',
-    }
-    const counts = {}
-    let invalid = 0
-    for (const line of proxyLinks.split('\n')) {
-      const l = line.trim()
-      if (!l || l.startsWith('#')) continue
-      const proto = Object.entries(MAP).find(([pfx]) => l.startsWith(pfx))?.[1]
-      if (proto) counts[proto] = (counts[proto] || 0) + 1
-      else invalid++
-    }
-    return {
-      total: Object.values(counts).reduce((a, b) => a + b, 0),
-      breakdown: Object.entries(counts),
-      invalid,
-    }
-  }
-  const { total, breakdown, invalid } = analyzeProxies()
-
-  /* ── Highlighted YAML preview ─────────────────────────────────── */
-  const highlightedYaml = useMemo(
-    () => yamlPreview.split('\n').map(highlightYamlLine).join('\n'),
-    [yamlPreview],
-  )
-
-  const jumpToYamlSection = useCallback((sec) => {
-    const pre = yamlPreRef.current
-    const el  = pre?.querySelector(`#yaml-sec-${sec}`)
-    if (pre && el) pre.scrollTop = Math.max(0, el.offsetTop - 8)
-  }, [])
-
-  /* ── textarea / input shared style ───────────────────────────── */
-  const inputCls = 'w-full bg-gray-50 dark:bg-gray-950 ' +
-    'border border-gray-200 dark:border-gray-700 rounded-[9px] ' +
-    'px-[13px] py-[9px] text-[12.5px] font-mono ' +
-    'text-gray-800 dark:text-gray-200 ' +
-    'placeholder-gray-300 dark:placeholder-gray-600 ' +
-    'focus:outline-none focus:border-blue-500 ' +
-    'transition-colors resize-y leading-relaxed'
-
   return (
     <>
       <Head>
@@ -517,7 +333,6 @@ export default function Home() {
         <meta name="description" content={t('meta.description')} />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        {/* Discourage indexing — this is a personal-use self-hosted tool */}
         <meta name="robots" content="noindex, nofollow, noarchive" />
       </Head>
 
@@ -529,7 +344,6 @@ export default function Home() {
           style={{ boxShadow: '0 1px 0 var(--tw-shadow-color, rgba(0,0,0,.04))' }}>
           <div className="max-w-5xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-2">
 
-            {/* Logo + wordmark */}
             <div className="flex items-center gap-[9px] sm:gap-[11px] min-w-0">
               <LogoMark size={30}/>
               <div className="min-w-0">
@@ -549,11 +363,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Controls */}
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <ThemeToggle theme={theme} setTheme={setTheme} t={t}/>
 
-              {/* Language toggle */}
               <div className="flex bg-gray-100 dark:bg-gray-800 border border-gray-200
                 dark:border-gray-700 rounded-lg p-[3px] gap-[3px]">
                 {Object.entries(LOCALES).map(([key, { name }]) => (
@@ -569,7 +381,6 @@ export default function Home() {
                 ))}
               </div>
 
-              {/* GitHub link */}
               <a href="https://github.com/ififi2017/mihomo-subconverter"
                 target="_blank" rel="noopener noreferrer"
                 className="hidden sm:flex w-[30px] h-[30px] items-center justify-center rounded-lg
@@ -623,275 +434,32 @@ export default function Home() {
           )}
 
           {/* ── Step 1: Proxy Links ───────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-[9px] shrink-0">
-                <StepBadge n="1"/>
-                <span className="text-[13.5px] font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                  {t('step1.title')}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-end gap-[7px] min-w-0">
-                {extractedFrom && (
-                  <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full whitespace-nowrap
-                    text-[11px] font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400
-                    border border-emerald-500/20">
-                    <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
-                    </svg>
-                    {t('step1.extractedBadge')}
-                  </span>
-                )}
-                {invalid > 0 && (
-                  <span className="inline-flex items-center gap-1 px-[9px] py-[2px] rounded-full whitespace-nowrap
-                    text-[11px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400
-                    border border-amber-500/20">
-                    <svg width="10" height="10" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                    </svg>
-                    {t('step1.invalidLines', { count: invalid })}
-                  </span>
-                )}
-                {total > 0 && (
-                  <div className="flex flex-wrap items-center justify-end gap-[5px]">
-                    <span className="text-[11.5px] font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                      {t('step1.nodeCount', { count: total })}
-                    </span>
-                    <span className="text-gray-300 dark:text-gray-700 text-sm">·</span>
-                    <div className="flex flex-wrap justify-end gap-[3px]">
-                      {breakdown.map(([p,c]) => <ProtoBadge key={p} proto={p} count={c}/>)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardHeader>
-            <div className="p-[18px]">
-              <textarea
-                value={proxyLinks}
-                onChange={e => handleProxyInput(e.target.value)}
-                placeholder={t('step1.placeholder')}
-                rows={8}
-                className={inputCls}
-                spellCheck={false}
-              />
-              <p className="mt-2 text-[11.5px] text-gray-400 dark:text-gray-500 flex flex-wrap gap-[3px] items-center">
-                <span>{t('step1.supported')}</span>
-                {[
-                  ['hy2','Hysteria2'],['anytls','AnyTLS'],['vless','VLESS'],
-                  ['trojan','Trojan'],['vmess','VMess'],['ss','Shadowsocks'],['tuic','TUIC'],
-                ].map(([k, label], i, arr) => (
-                  <span key={k}>
-                    <code className="text-blue-500 dark:text-blue-400 font-mono text-[11px]">{label}</code>
-                    {i < arr.length-1 && <span className="text-gray-200 dark:text-gray-700 ml-[3px]">·</span>}
-                  </span>
-                ))}
-              </p>
-            </div>
-          </Card>
+          <ProxyInput
+            value={proxyLinks}
+            onChange={handleProxyInput}
+            extractedFrom={extractedFrom}
+            t={t}
+          />
 
           {/* ── Step 2: Rule Groups ───────────────────────────── */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-[9px]">
-                <StepBadge n="2"/>
-                <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
-                  {t('step2.title')}
-                </span>
-              </div>
-              {!groupsLoading && ruleGroups.length > 0 && selectedGroups && (
-                <div className="flex gap-2">
-                  <button onClick={() => setSelectedGroups(new Set(ruleGroups))}
-                    className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-white transition-colors">
-                    {t('step2.selectAll')}
-                  </button>
-                  <span className="text-gray-200 dark:text-gray-700">·</span>
-                  <button onClick={() => setSelectedGroups(new Set())}
-                    className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-white transition-colors">
-                    {t('step2.clear')}
-                  </button>
-                </div>
-              )}
-            </CardHeader>
-
-            {/* Template URL sub-row */}
-            <div className="px-[18px] pt-3 pb-3 border-b border-gray-50 dark:border-gray-800/60">
-              <div className="flex flex-col gap-[6px]">
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {t('step2.templateLabel')}
-                  <span className="ml-1 font-normal opacity-60">{t('step2.templateOptional')}</span>
-                </span>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="url"
-                    value={templateUrl}
-                    onChange={e => handleTemplateInput(e.target.value)}
-                    placeholder={t('step2.templatePlaceholder')}
-                    className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-950
-                      border border-gray-200 dark:border-gray-700 rounded-[9px]
-                      px-[11px] py-[7px] text-[12px] font-mono
-                      text-gray-700 dark:text-gray-200
-                      placeholder-gray-300 dark:placeholder-gray-600
-                      focus:outline-none focus:border-blue-500
-                      transition-colors"
-                    spellCheck={false}
-                  />
-                  {!templateUrl && (
-                    <span className="text-[11px] text-gray-300 dark:text-gray-600 shrink-0 italic hidden sm:block">
-                      {t('step2.templateDefault')}
-                    </span>
-                  )}
-                </div>
-              </div>
-              {/* Description: sub-web compat note + example link */}
-              <p className="mt-[7px] text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed flex flex-wrap items-baseline gap-x-1">
-                <span>{t('step2.templateDescription')}</span>
-                <a href="https://sub-web.pages.dev/" target="_blank" rel="noopener noreferrer"
-                  className="text-blue-500 dark:text-blue-400 hover:underline">
-                  {t('step2.templateDescriptionSubweb')}
-                </a>
-                <span>{t('step2.templateDescriptionSuffix')}</span>
-                <span className="text-gray-300 dark:text-gray-700">·</span>
-                <a href="https://raw.githubusercontent.com/ififi2017/clash_rules/master/config/MetaCubeX_Full.ini"
-                  target="_blank" rel="noopener noreferrer"
-                  className="text-blue-500 dark:text-blue-400 hover:underline">
-                  {t('step2.templateViewExample')}
-                  <svg width="9" height="9" viewBox="0 0 20 20" fill="currentColor" style={{ display: 'inline', marginLeft: 2, marginBottom: 1 }}>
-                    <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
-                    <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
-                  </svg>
-                </a>
-              </p>
-            </div>
-
-            {/* Groups */}
-            <div className="p-[18px]">
-              {groupsLoading ? (
-                <div className="flex items-center gap-2 justify-center py-5
-                  text-sm text-gray-400 dark:text-gray-500">
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity=".25"/>
-                    <path fill="currentColor" opacity=".8" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                  </svg>
-                  {t('step2.loading')}
-                </div>
-              ) : groupsError ? (
-                <div className="flex items-center gap-3 py-3 text-sm text-red-500 dark:text-red-400">
-                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                  </svg>
-                  <span className="flex-1">{t('step2.loadError')}: {groupsError}</span>
-                  <button onClick={() => fetchGroups(templateUrl)}
-                    className="text-xs underline underline-offset-2 hover:no-underline">
-                    {t('step2.retry')}
-                  </button>
-                </div>
-              ) : ruleGroups.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
-                  {ruleGroups.map(group => {
-                    const checked = selectedGroups?.has(group) ?? true
-                    return (
-                      <label key={group}
-                        className={`flex items-center gap-[10px] px-3 py-[10px] rounded-[10px]
-                          border cursor-pointer transition-all ${
-                          checked
-                            ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-400 dark:border-blue-500/50'
-                            : 'bg-gray-50/80 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/80 hover:border-gray-300 dark:hover:border-gray-600'
-                        }`}>
-                        <input type="checkbox" checked={checked} onChange={() => toggleGroup(group)}
-                          className="mt-px accent-blue-500 shrink-0"/>
-                        <span className={`text-[13px] truncate ${
-                          checked ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
-                        }`}>{group}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </Card>
+          <RuleGroups
+            templateUrl={templateUrl}
+            onTemplateChange={handleTemplateInput}
+            groupsLoading={groupsLoading}
+            groupsError={groupsError}
+            ruleGroups={ruleGroups}
+            selectedGroups={selectedGroups}
+            onToggleGroup={toggleGroup}
+            onSelectAll={() => setSelectedGroups(new Set(ruleGroups))}
+            onClear={() => setSelectedGroups(new Set())}
+            onFetchGroups={fetchGroups}
+            t={t}
+          />
 
           {/* ── Steps 3 + 4 side by side ─────────────────────── */}
-          {/* We intentionally use "Step 3" label for Custom Rules */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-            {/* Template description (mobile: first; desktop: right of custom rules) */}
-            {/* Step 3: Custom Rules */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-[9px]">
-                  <StepBadge n="3"/>
-                  <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
-                    {t('step3.title')}
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 font-normal ml-[6px]">
-                      {t('step3.optional')}
-                    </span>
-                  </span>
-                </div>
-              </CardHeader>
-              <div className="p-[18px]">
-                <textarea
-                  value={customRules}
-                  onChange={e => setCustomRules(e.target.value)}
-                  placeholder={t('step3.placeholder')}
-                  rows={5}
-                  className={inputCls}
-                  spellCheck={false}
-                />
-              </div>
-            </Card>
-
-            {/* Usage hints panel */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-[9px]">
-                  <span className="w-[22px] h-[22px] rounded-full bg-gray-200 dark:bg-gray-700
-                    flex items-center justify-center shrink-0">
-                    <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"
-                      className="text-gray-500 dark:text-gray-400">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"/>
-                    </svg>
-                  </span>
-                  <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
-                    {t('guide.title')}
-                  </span>
-                </div>
-              </CardHeader>
-              <div className="p-[18px]">
-                <ul className="space-y-3">
-                  {[
-                    <path key="0" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>,
-                    <path key="1" fillRule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd"/>,
-                    <path key="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/>,
-                  ].map((icon, i) => (
-                    <li key={i} className="flex items-start gap-[10px]">
-                      <span className="w-5 h-5 rounded-md bg-blue-50 dark:bg-blue-900/30
-                        flex items-center justify-center shrink-0 mt-px">
-                        <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"
-                          className="text-blue-500 dark:text-blue-400">
-                          {icon}
-                        </svg>
-                      </span>
-                      <span className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed">
-                        {t(`guide.items.${i}`)}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-                  <p className="text-[11px] text-gray-400 dark:text-gray-500 leading-relaxed">
-                    {t('guide.footnote').split('{metacubex}').map((part, i) =>
-                      i === 0 ? part : (
-                        <span key={i}>
-                          <a href="https://github.com/MetaCubeX/meta-rules-dat" target="_blank" rel="noopener noreferrer"
-                            className="text-blue-500 dark:text-blue-400 hover:underline">MetaCubeX</a>
-                          {part}
-                        </span>
-                      )
-                    )}
-                  </p>
-                </div>
-              </div>
-            </Card>
+            <CustomRules value={customRules} onChange={setCustomRules} t={t} />
+            <GuidePanel t={t} />
           </div>
 
           {/* ── Generate Button ───────────────────────────────── */}
@@ -945,159 +513,22 @@ export default function Home() {
           )}
 
           {/* ── Result ────────────────────────────────────────── */}
-          {(subUrl || yamlPreview) && (
-            <div ref={resultRef} style={{ scrollMarginTop: 64 }}>
-            <Card className="animate-in">
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  {/* Live green dot */}
-                  <span className="w-[7px] h-[7px] rounded-full bg-emerald-500"
-                    style={{ boxShadow: '0 0 0 3px rgba(34,197,94,.2)' }}/>
-                  <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
-                    {t('result.title')}
-                  </span>
-                </div>
-                {/* Tab switcher */}
-                <div className="flex bg-gray-100 dark:bg-gray-800 border border-gray-200
-                  dark:border-gray-700 rounded-lg p-[3px] gap-[3px]">
-                  {[['url', t('result.tabUrl')], ['yaml', t('result.tabYaml')]].map(([key, label]) => (
-                    <button key={key} onClick={() => setActiveTab(key)}
-                      className={`px-3 py-1 rounded-md text-[11.5px] font-medium transition-colors ${
-                        activeTab === key
-                          ? 'bg-blue-600 text-white'
-                          : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white'
-                      }`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </CardHeader>
-
-              {activeTab === 'url' && subUrl && (
-                <div className="p-[18px] flex flex-col gap-4">
-                  <div>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
-                      {t('result.urlDescription')}
-                    </p>
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <div className="flex-1 min-w-0 bg-gray-50 dark:bg-gray-950
-                        border border-gray-200 dark:border-gray-700 rounded-[9px] px-3 py-2 overflow-hidden">
-                        <div className="text-[12px] font-mono text-gray-600 dark:text-gray-300
-                          break-all max-h-[76px] overflow-y-auto
-                          sm:break-normal sm:max-h-none sm:overflow-hidden sm:whitespace-nowrap sm:text-ellipsis">
-                          {subUrl}
-                        </div>
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        <button
-                          onClick={() => copyToClipboard(subUrl, 'url')}
-                          className={`${secBtnCls} whitespace-nowrap ${
-                            copied === 'url'
-                              ? '!bg-emerald-500/10 !text-emerald-600 dark:!text-emerald-400 !border-emerald-500/30'
-                              : ''
-                          }`}>
-                          {copied === 'url' ? (
-                            <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>{t('result.copied')}</>
-                          ) : (
-                            <><svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor"><path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"/><path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"/></svg>{t('result.copy')}</>
-                          )}
-                        </button>
-                        <button
-                          onClick={() => setShowQr(v => !v)}
-                          className={`${secBtnCls} whitespace-nowrap ${
-                            showQr ? '!border-blue-500 !text-blue-600 dark:!text-blue-400' : ''
-                          }`}>
-                          <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
-                            <path d="M3 3h5v5H3V3zm2 2v1h1V5H5zM3 12h5v5H3v-5zm2 2v1h1v-1H5zM12 3h5v5h-5V3zm2 2v1h1V5h-1zM12 12h2v2h-2v-2zM15 12h2v2h-2v-2zM12 15h2v2h-2v-2zM15 15h2v2h-2v-2z"/>
-                          </svg>
-                          {t('result.qr')}
-                        </button>
-                      </div>
-                    </div>
-                    {showQr && (
-                      qrError ? (
-                        <p className="mt-3 text-[11.5px] text-amber-600/90 dark:text-amber-500/90">
-                          {t('result.qrTooLong')}
-                        </p>
-                      ) : qrDataUrl && (
-                        <div className="mt-3 flex flex-col items-center gap-2 animate-in">
-                          <img src={qrDataUrl} alt="Subscription QR code" width={220} height={220}
-                            className="rounded-[10px] border border-gray-200 dark:border-gray-700 bg-white p-2"/>
-                          <p className="text-[11px] text-gray-400 dark:text-gray-500">
-                            {t('result.qrHint')}
-                          </p>
-                        </div>
-                      )
-                    )}
-                    <p className="mt-2 text-[11px] text-amber-600/90 dark:text-amber-500/90 flex items-center gap-1.5">
-                      <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor" className="shrink-0">
-                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
-                      </svg>
-                      {t('result.urlSecurityNote')}
-                    </p>
-                    {subUrl.length > 8000 && (
-                      <p className="mt-1 text-[11px] text-amber-600/90 dark:text-amber-500/90">
-                        {t('result.urlTooLong', { count: subUrl.length })}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'yaml' && yamlPreview && (
-                <div className="p-[18px]">
-                  <div className="flex flex-wrap justify-between items-center gap-2 mb-[10px]">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-gray-400 dark:text-gray-500">
-                        {t('result.yamlLines', { count: yamlPreview.split('\n').length })}
-                      </span>
-                      <span className="text-gray-200 dark:text-gray-700">·</span>
-                      {YAML_SECTIONS.map(sec => (
-                        <button key={sec} onClick={() => jumpToYamlSection(sec)}
-                          className="px-2 py-[2px] rounded-md text-[10.5px] font-mono
-                            bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700
-                            text-gray-500 dark:text-gray-400
-                            hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400
-                            transition-colors">
-                          {sec}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex gap-[6px]">
-                      <button onClick={() => copyToClipboard(yamlPreview, 'yaml')}
-                        className={secBtnCls}>
-                        {copied === 'yaml' ? `✓ ${t('result.copied')}` : t('result.copy')}
-                      </button>
-                      <button onClick={downloadYaml}
-                        className="flex items-center gap-1.5 px-3 py-[6px] rounded-lg
-                          text-xs font-medium text-white transition-colors"
-                        style={{
-                          background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
-                          boxShadow: 'var(--shadow-btn)',
-                        }}>
-                        <svg width="11" height="11" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd"/>
-                        </svg>
-                        {t('result.download')}
-                      </button>
-                    </div>
-                  </div>
-                  <pre ref={yamlPreRef}
-                    className="rounded-[10px] p-[14px] text-[12px] font-mono
-                    overflow-auto max-h-[300px] leading-[1.7]"
-                    style={{
-                      background: '#0d1117',
-                      border: '1px solid rgba(255,255,255,.06)',
-                      color: '#8fbcbb',
-                      position: 'relative',
-                    }}
-                    dangerouslySetInnerHTML={{ __html: highlightedYaml }}
-                  />
-                </div>
-              )}
-            </Card>
-            </div>
-          )}
+          <ResultPanel
+            subUrl={subUrl}
+            yamlPreview={yamlPreview}
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            copied={copied}
+            onCopy={copyToClipboard}
+            onDownload={downloadYaml}
+            showQr={showQr}
+            qrDataUrl={qrDataUrl}
+            qrError={qrError}
+            onToggleQr={() => setShowQr(v => !v)}
+            yamlPreRef={yamlPreRef}
+            resultRef={resultRef}
+            t={t}
+          />
 
         </main>
 

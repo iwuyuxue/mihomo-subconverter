@@ -9,9 +9,7 @@
 import { parseIni } from '../../lib/iniParser'
 import { validateTemplateUrl, fetchTextCapped } from '../../lib/safeFetch'
 import { checkAccessToken } from '../../lib/auth'
-
-const DEFAULT_TEMPLATE_URL =
-  'https://raw.githubusercontent.com/ififi2017/clash_rules/master/config/MetaCubeX_Full.ini'
+import { DEFAULT_TEMPLATE_URL } from '../../lib/constants'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
