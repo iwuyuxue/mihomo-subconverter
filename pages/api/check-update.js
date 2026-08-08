@@ -10,10 +10,11 @@
  */
 
 import pkg from '../../package.json'
+import { fetchTextCapped } from '../../lib/safeFetch'
+import { CACHE_TTL_MS } from '../../lib/constants'
 
-const REPO_URL     = 'https://github.com/ififi2017/mihomo-subconverter'
-const RAW_PKG_URL  = 'https://raw.githubusercontent.com/ififi2017/mihomo-subconverter/main/package.json'
-const CACHE_TTL_MS = 60 * 60 * 1000  // 1 hour
+const REPO_URL    = 'https://github.com/ififi2017/mihomo-subconverter'
+const RAW_PKG_URL = 'https://raw.githubusercontent.com/ififi2017/mihomo-subconverter/main/package.json'
 
 let _cache = null  // { data, expiresAt }
 
@@ -43,14 +44,9 @@ export default async function handler(req, res) {
 
   let latest = current
   try {
-    const ghRes = await fetch(RAW_PKG_URL, {
-      headers: { 'User-Agent': 'mihomo-subconverter-update-check' },
-      signal: AbortSignal.timeout(5_000),
-    })
-    if (ghRes.ok) {
-      const ghPkg = await ghRes.json()
-      if (ghPkg?.version) latest = ghPkg.version
-    }
+    const body = await fetchTextCapped(RAW_PKG_URL, { timeoutMs: 5_000, maxBytes: 10_000 })
+    const ghPkg = JSON.parse(body)
+    if (ghPkg?.version) latest = ghPkg.version
   } catch {
     // Network failure — report no update rather than throwing
   }
