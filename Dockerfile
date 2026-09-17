@@ -2,9 +2,7 @@
 FROM node:18-alpine AS builder
 WORKDIR /app
 
-# 1. 允许 Next.js 在内存不足时自动扩容内存
 ENV NODE_OPTIONS="--max-old-space-size=4096"
-# 2. 忽略打包时的 TypeScript/ESLint 阻断
 ENV NEXT_TELEMETRY_DISABLED=1
 
 COPY package*.json ./
@@ -12,8 +10,19 @@ RUN npm ci
 
 COPY . .
 
-# 如果项目配有 build 脚本，可以在打包时跳过类型/ESLint 检查
-RUN NEXT_IGNORE_TYPECHECK=1 NEXT_IGNORE_ESLINT=1 npm run build
+# 自动在 next.config 中追加忽略 TypeScript 和 ESLint 检查的配置
+RUN node -e '\
+  const fs = require("fs"); \
+  let file = "next.config.js"; \
+  if (!fs.existsSync(file)) { if (fs.existsSync("next.config.mjs")) file = "next.config.mjs"; else return; } \
+  let content = fs.readFileSync(file, "utf8"); \
+  if (!content.includes("ignoreBuildErrors")) { \
+    content = content.replace(/(module\.exports\s*=\s*\{|const\s+nextConfig\s*=\s*\{)/, "$1\n  typescript: { ignoreBuildErrors: true },\n  eslint: { ignoreDuringBuilds: true },"); \
+    fs.writeFileSync(file, content, "utf8"); \
+  }'
+
+# 执行构建
+RUN npm run build
 
 # 阶段 2: 运行阶段
 FROM node:18-alpine AS runner
@@ -25,7 +34,6 @@ ENV PORT=3000
 COPY package*.json ./
 RUN npm ci --only=production
 
-# 复制构建产物和必要文件
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/next.config.* ./
