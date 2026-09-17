@@ -1,5 +1,5 @@
 import { Card, CardHeader, StepBadge } from './UI'
-import { DEFAULT_TEMPLATE_URL } from '../lib/constants'
+import { DEFAULT_TEMPLATE_URL, DEFAULT_TEMPLATE_URL_original } from '../lib/constants'
 
 export default function RuleGroups({
   templateUrl, onTemplateChange,
@@ -10,7 +10,7 @@ export default function RuleGroups({
     <Card>
       <CardHeader>
         <div className="flex items-center gap-[9px]">
-          <StepBadge n="2"/>
+          <StepBadge n="2" />
           <span className="text-[13.5px] font-medium text-gray-900 dark:text-white">
             {t('step2.title')}
           </span>
@@ -67,13 +67,23 @@ export default function RuleGroups({
           </a>
           <span>{t('step2.templateDescriptionSuffix')}</span>
           <span className="text-gray-300 dark:text-gray-700">·</span>
-          <a href={DEFAULT_TEMPLATE_URL}
+          <a href={DEFAULT_TEMPLATE_URL_original}
             target="_blank" rel="noopener noreferrer"
             className="text-blue-500 dark:text-blue-400 hover:underline">
+            {t('step2.templateViewExample_original')}
+            <svg width="9" height="9" viewBox="0 0 20 20" fill="currentColor" style={{ display: 'inline', marginLeft: 2, marginBottom: 1 }}>
+              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
+            </svg>
+          </a>
+
+          <a href={DEFAULT_TEMPLATE_URL}
+            target="_blank" rel="noopener noreferrer"
+            className="ml-3 text-blue-500 dark:text-blue-400 hover:underline">
             {t('step2.templateViewExample')}
             <svg width="9" height="9" viewBox="0 0 20 20" fill="currentColor" style={{ display: 'inline', marginLeft: 2, marginBottom: 1 }}>
-              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/>
-              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/>
+              <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
+              <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
             </svg>
           </a>
         </p>
@@ -85,15 +95,15 @@ export default function RuleGroups({
           <div className="flex items-center gap-2 justify-center py-5
             text-sm text-gray-400 dark:text-gray-500">
             <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity=".25"/>
-              <path fill="currentColor" opacity=".8" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" opacity=".25" />
+              <path fill="currentColor" opacity=".8" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
             {t('step2.loading')}
           </div>
         ) : groupsError ? (
           <div className="flex items-center gap-3 py-3 text-sm text-red-500 dark:text-red-400">
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd"/>
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
             </svg>
             <span className="flex-1">{t('step2.loadError')}: {groupsError}</span>
             <button onClick={() => onFetchGroups(templateUrl)}
@@ -108,16 +118,14 @@ export default function RuleGroups({
               return (
                 <label key={group}
                   className={`flex items-center gap-[10px] px-3 py-[10px] rounded-[10px]
-                    border cursor-pointer transition-all ${
-                    checked
+                    border cursor-pointer transition-all ${checked
                       ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-400 dark:border-blue-500/50'
                       : 'bg-gray-50/80 dark:bg-gray-800/40 border-gray-200 dark:border-gray-700/80 hover:border-gray-300 dark:hover:border-gray-600'
-                  }`}>
+                    }`}>
                   <input type="checkbox" checked={checked} onChange={() => onToggleGroup(group)}
-                    className="mt-px accent-blue-500 shrink-0"/>
-                  <span className={`text-[13px] truncate ${
-                    checked ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
-                  }`}>{group}</span>
+                    className="mt-px accent-blue-500 shrink-0" />
+                  <span className={`text-[13px] truncate ${checked ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
+                    }`}>{group}</span>
                 </label>
               )
             })}

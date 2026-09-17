@@ -45,7 +45,7 @@ export default async function handler(req, res) {
         return res
           .status(400)
           .send('Invalid template URL: only public http(s) URLs are allowed' +
-                (process.env.TEMPLATE_ALLOWED_HOSTS ? ' (host not in allowlist)' : ''))
+            (process.env.TEMPLATE_ALLOWED_HOSTS ? ' (host not in allowlist)' : ''))
       }
       templateUrl = validated
     }

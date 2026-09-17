@@ -4,9 +4,9 @@
     "description": "Mihomo / Clash config generator supporting Hysteria2, AnyTLS, VLESS, Trojan, VMess, Shadowsocks, TUIC"
   },
   "theme": {
-    "auto":  "Auto",
+    "auto": "Auto",
     "light": "Light",
-    "dark":  "Dark"
+    "dark": "Dark"
   },
   "header": {
     "title": "Mihomo Subscription Converter",
@@ -19,7 +19,9 @@
     "nodeCount": "{{count}} nodes",
     "invalidLines": "{{count}} unrecognized lines",
     "placeholder": "# Paste your proxy links here, one per line:\n# hysteria2://password@host:port?peer=sni&insecure=1#NodeName\n# anytls://password@host:port?peer=sni&insecure=1#NodeName\n# vless://uuid@host:port?security=reality&pbk=xxx&sni=xxx&fp=chrome&sid=xxx#NodeName\n# trojan://password@host:port?sni=xxx#NodeName\n# vmess://base64...\n# ss://method:password@host:port#NodeName",
-    "supported": "Supported protocols:"
+    "supported": "Supported protocols:",
+    "showOriginal": "Show Original",
+    "decodeBase64": "Decode Base64"
   },
   "step2": {
     "title": "Rule Groups",
@@ -35,6 +37,7 @@
     "templateDescriptionSubweb": "sub-web remote config",
     "templateDescriptionSuffix": "URLs.",
     "templateViewExample": "View example template",
+    "templateViewExample_original": "View original template",
     "templateDefault": "Default: MetaCubeX Full Template"
   },
   "step3": {

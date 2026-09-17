@@ -39,7 +39,7 @@ export default async function handler(req, res) {
 
     // Collect unique group names that have URL-based rulesets (toggleable services).
     // Inline rules (GEOIP, FINAL, etc.) are always included and not shown as checkboxes.
-    const seen   = new Set()
+    const seen = new Set()
     const groups = []
     for (const rs of rulesets) {
       if (rs.url && !seen.has(rs.group)) {

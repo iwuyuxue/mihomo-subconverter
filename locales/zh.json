@@ -4,9 +4,9 @@
     "description": "Clash / Mihomo 订阅链接转换工具，支持 Hysteria2、AnyTLS、VLESS 等协议"
   },
   "theme": {
-    "auto":  "自动",
+    "auto": "自动",
     "light": "浅色",
-    "dark":  "深色"
+    "dark": "深色"
   },
   "header": {
     "title": "Mihomo 订阅转换",
@@ -19,7 +19,9 @@
     "nodeCount": "{{count}} 条节点",
     "invalidLines": "{{count}} 行未识别",
     "placeholder": "# 粘贴你的节点链接，每行一个，支持以下格式：\n# hysteria2://password@host:port?peer=sni&insecure=1#节点名称\n# anytls://password@host:port?peer=sni&insecure=1#节点名称\n# vless://uuid@host:port?security=reality&pbk=xxx&sni=xxx&fp=chrome&sid=xxx#节点名称\n# trojan://password@host:port?sni=xxx#节点名称\n# vmess://base64...\n# ss://method:password@host:port#节点名称",
-    "supported": "支持协议："
+    "supported": "支持协议：",
+    "showOriginal": "显示原文",
+    "decodeBase64": "Base64 解码"
   },
   "step2": {
     "title": "选择规则组",
@@ -35,6 +37,7 @@
     "templateDescriptionSubweb": "sub-web 远程配置",
     "templateDescriptionSuffix": "链接。",
     "templateViewExample": "查看示例模板",
+    "templateViewExample_original": "查看原始模板",
     "templateDefault": "默认：MetaCubeX Full 模板"
   },
   "step3": {
