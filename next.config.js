@@ -6,6 +6,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  output: 'standalone', // Enables lightweight Docker output
   reactStrictMode: true,
 
   async headers() {
